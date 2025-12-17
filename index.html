@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Teacher Admin Panel (Pro)</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Supabase Library -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
     <style>
@@ -290,7 +291,9 @@
         // CONFIG
         const SUPABASE_URL = 'https://byezxlkkckbliduofdco.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5ZXp4bGtrY2tibGlkdW9mZGNvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxMzQ2MjUsImV4cCI6MjA3OTcxMDYyNX0._HEdU0IxVH4RPsdejJsY5gd9uKO7fdaNTILYxhXaZl0';
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        // FIXED: Renamed variable to 'adminClient' to avoid 'already declared' error
+        const adminClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         
         let adminTimerInterval = null;
 
@@ -351,8 +354,8 @@
                 let imageUrl = null;
                 if(imgFile) {
                     const fileName = `ques_${Date.now()}`;
-                    await supabase.storage.from('exam_images').upload(fileName, imgFile);
-                    const { data } = supabase.storage.from('exam_images').getPublicUrl(fileName);
+                    await adminClient.storage.from('exam_images').upload(fileName, imgFile);
+                    const { data } = adminClient.storage.from('exam_images').getPublicUrl(fileName);
                     imageUrl = data.publicUrl;
                 }
 
@@ -362,7 +365,7 @@
                     correct_option: correct 
                 };
                 
-                await supabase.from('questions').insert(insertData);
+                await adminClient.from('questions').insert(insertData);
                 await customAlert("✅ Question Added!");
                 
                 document.getElementById('q-text').value = "";
@@ -375,7 +378,7 @@
         }
 
         async function fetchQuestions() {
-            const { data } = await supabase.from('questions').select('*').order('created_at', {ascending: false});
+            const { data } = await adminClient.from('questions').select('*').order('created_at', {ascending: false});
             if(data) {
                 document.getElementById('q-count').innerText = data.length;
                 document.getElementById('questions-preview').innerHTML = data.map((q,i) => 
@@ -389,8 +392,8 @@
 
         async function deleteAllQuestions() {
             if(await customConfirm("⚠️ DELETE ALL questions from Bank?")) {
-                const { data } = await supabase.from('questions').select('id');
-                if(data.length) await supabase.from('questions').delete().in('id', data.map(q=>q.id));
+                const { data } = await adminClient.from('questions').select('id');
+                if(data.length) await adminClient.from('questions').delete().in('id', data.map(q=>q.id));
                 fetchQuestions();
                 await customAlert("Bank cleared. Scheduled exams are safe.");
             }
@@ -403,7 +406,7 @@
             if(!await customConfirm(`Start "${name}" for ${duration} mins?`)) return;
             
             // Set linked_queue_id to NULL to tell students to look in Main Bank
-            await supabase.from('exam_state').update({ 
+            await adminClient.from('exam_state').update({ 
                 status: 'started', exam_name: name, duration_minutes: duration, 
                 start_time: new Date().toISOString(), linked_queue_id: null 
             }).eq('id', 1);
@@ -422,11 +425,11 @@
             if(scheduledDate <= new Date()) return await customAlert("⚠️ Time must be in future!");
 
             // 1. Fetch ALL current questions for Backup
-            const { data: allQuestions } = await supabase.from('questions').select('*');
+            const { data: allQuestions } = await adminClient.from('questions').select('*');
             if(!allQuestions || allQuestions.length === 0) return await customAlert("❌ Cannot Schedule: No questions available to snapshot!");
 
             // 2. Insert into Queue WITH Snapshot
-            const { error } = await supabase.from('exam_queue').insert({
+            const { error } = await adminClient.from('exam_queue').insert({
                 exam_name: name, 
                 duration_minutes: dur, 
                 scheduled_at: scheduledDate.toISOString(), 
@@ -444,22 +447,22 @@
             stopAutoTimer();
 
             // 1. Check if we are running a Scheduled Exam
-            const { data: stateData } = await supabase.from('exam_state').select('linked_queue_id').eq('id', 1).single();
+            const { data: stateData } = await adminClient.from('exam_state').select('linked_queue_id').eq('id', 1).single();
             
             // 2. Stop the exam
-            await supabase.from('exam_state').update({ status: 'ended' }).eq('id', 1);
+            await adminClient.from('exam_state').update({ status: 'ended' }).eq('id', 1);
             
             // 3. CLEANUP: If it was a scheduled exam, clear the heavy snapshot now
             if(stateData && stateData.linked_queue_id) {
                 console.log("Cleaning up snapshot for ID:", stateData.linked_queue_id);
-                await supabase.from('exam_queue').update({ question_snapshot: null }).eq('id', stateData.linked_queue_id);
+                await adminClient.from('exam_queue').update({ question_snapshot: null }).eq('id', stateData.linked_queue_id);
             }
 
             await customAlert("Exam Stopped & Cleanup Done.");
         }
 
         async function fetchScheduledExams() {
-            const { data } = await supabase.from('exam_queue').select('*').eq('status', 'pending').order('scheduled_at', {ascending: true});
+            const { data } = await adminClient.from('exam_queue').select('*').eq('status', 'pending').order('scheduled_at', {ascending: true});
             const list = document.getElementById('scheduled-list');
             
             if(data && data.length) {
@@ -479,7 +482,7 @@
 
         async function deleteScheduled(id) {
             if(!await customConfirm("Remove from schedule?")) return;
-            await supabase.from('exam_queue').delete().eq('id', id);
+            await adminClient.from('exam_queue').delete().eq('id', id);
             fetchScheduledExams();
         }
 
@@ -487,14 +490,14 @@
         function startScheduleLoop() {
             setInterval(async () => {
                 const nowISO = new Date().toISOString();
-                const { data } = await supabase.from('exam_queue').select('*').eq('status', 'pending').lte('scheduled_at', nowISO).limit(1);
+                const { data } = await adminClient.from('exam_queue').select('*').eq('status', 'pending').lte('scheduled_at', nowISO).limit(1);
 
                 if(data && data.length > 0) {
                     const exam = data[0];
                     console.log("⏰ Auto-Starting:", exam.exam_name);
                     
                     // Start Exam & LINK THE QUEUE ID so students find the snapshot
-                    await supabase.from('exam_state').update({
+                    await adminClient.from('exam_state').update({
                         status: 'started', 
                         exam_name: exam.exam_name, 
                         duration_minutes: exam.duration_minutes, 
@@ -502,7 +505,7 @@
                         linked_queue_id: exam.id // IMPORTANT: Links to snapshot
                     }).eq('id', 1);
 
-                    await supabase.from('exam_queue').update({ status: 'completed' }).eq('id', exam.id);
+                    await adminClient.from('exam_queue').update({ status: 'completed' }).eq('id', exam.id);
                     fetchExamState();
                     fetchScheduledExams();
                 }
@@ -511,7 +514,7 @@
 
         // --- TIMER & STATE ---
         async function fetchExamState() {
-            const { data } = await supabase.from('exam_state').select('*').single();
+            const { data } = await adminClient.from('exam_state').select('*').single();
             if(data) {
                 const b = document.getElementById('current-status');
                 b.innerText = data.status.toUpperCase();
@@ -542,12 +545,12 @@
         function stopAutoTimer() { clearInterval(adminTimerInterval); document.getElementById('admin-timer').style.display = 'none'; }
         
         async function autoEndExam() {
-            const { data } = await supabase.from('exam_state').select('*').eq('id', 1).single();
+            const { data } = await adminClient.from('exam_state').select('*').eq('id', 1).single();
             if(data && data.status === 'started') {
                 // Same Cleanup Logic Here for Auto-End
-                await supabase.from('exam_state').update({ status: 'ended' }).eq('id', 1);
+                await adminClient.from('exam_state').update({ status: 'ended' }).eq('id', 1);
                 if(data.linked_queue_id) {
-                    await supabase.from('exam_queue').update({ question_snapshot: null }).eq('id', data.linked_queue_id);
+                    await adminClient.from('exam_queue').update({ question_snapshot: null }).eq('id', data.linked_queue_id);
                 }
                 fetchExamState(); 
             }
@@ -555,14 +558,14 @@
 
         // --- REALTIME & STUDENTS ---
         function setupRealtimeListeners() {
-            supabase.channel('admin_room')
+            adminClient.channel('admin_room')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, fetchLiveStudents)
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_state' }, fetchExamState)
                 .subscribe();
         }
 
         async function fetchLiveStudents() {
-            const { data } = await supabase.from('students').select('*').eq('is_online', true).order('created_at', {ascending: false});
+            const { data } = await adminClient.from('students').select('*').eq('is_online', true).order('created_at', {ascending: false});
             const list = document.getElementById('student-list');
             document.getElementById('std-count').innerText = data ? data.length : 0;
             const btn = document.querySelector('.btn-refresh'); if(btn) btn.innerText = "↻";
@@ -581,12 +584,12 @@
 
         async function logoutAllStudents() {
             if(!await customConfirm("⚠️ Force LOGOUT ALL students?")) return;
-            await supabase.from('students').update({ is_online: false }).eq('is_online', true);
+            await adminClient.from('students').update({ is_online: false }).eq('is_online', true);
             await customAlert("✅ All students logged out.");
         }
         async function kickStudent(id, name) {
             if(!await customConfirm(`⚠️ Kick "${name}" out?`)) return;
-            await supabase.from('students').update({ is_online: false }).eq('id', id);
+            await adminClient.from('students').update({ is_online: false }).eq('id', id);
         }
 
         // --- OLD FEATURES RESTORED (HISTORY & DB) ---
@@ -598,7 +601,7 @@
         async function fetchStudentDB() {
             const tbody = document.getElementById('student-body');
             tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">Loading...</td></tr>`;
-            const { data } = await supabase.from('students').select('*').order('created_at', {ascending: false});
+            const { data } = await adminClient.from('students').select('*').order('created_at', {ascending: false});
             if(data && data.length) {
                 tbody.innerHTML = data.map(s => `
                     <tr>
@@ -614,7 +617,7 @@
         }
         async function deleteStudentAccount(id) {
             if(await customConfirm("⚠️ Permanently delete student?")) {
-                await supabase.from('students').delete().eq('id', id);
+                await adminClient.from('students').delete().eq('id', id);
                 fetchStudentDB(); fetchLiveStudents();
             }
         }
@@ -627,7 +630,7 @@
         async function fetchHistory() {
             const tbody = document.getElementById('history-body');
             tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">Loading...</td></tr>`;
-            const { data } = await supabase.from('exam_history').select('*').order('created_at', {ascending: false});
+            const { data } = await adminClient.from('exam_history').select('*').order('created_at', {ascending: false});
             if(data && data.length) {
                 tbody.innerHTML = data.map(r => `
                     <tr>
@@ -643,7 +646,7 @@
         }
         async function deleteHistoryItem(id) {
             if(await customConfirm("⚠️ Delete record?")) {
-                await supabase.from('exam_history').delete().eq('id', id);
+                await adminClient.from('exam_history').delete().eq('id', id);
                 fetchHistory();
             }
         }
@@ -655,4 +658,4 @@
         }
     </script>
 </body>
-</html>
+                        </html>
